@@ -28,6 +28,8 @@ description: >-
 
 照 `references/discuss.md` 执行（首轮独立 → `SendMessage` 互评 → 收敛判断 → 整合）。三个角色的定义见 `references/roles.md`。
 
+**上下文传递模式（可设置）**：互评轮另两家的信息怎么给——`digest`（默认，转发各家自产的「自述卡」：核心主张+证据+假设，省 token、是作者本人提炼不是主窗口二手摘要）或 `full`（转发各家完整 Round 1 全文，连论证链都给，最完整、token 更高）。用户用 `/cobblers --full`、或说「完整上下文 / full」→ `full`；否则 `digest`。详见 `references/discuss.md`。
+
 ## Quick 模式
 
 1. **同一条消息** spawn 3 个 Opus 子代理（`Agent` 工具，`subagent_type: general-purpose`，`run_in_background: true`）。每个 prompt = 用户任务**逐字原文** + 简短指令：用 web/bash 自行研究、作为多位独立专家之一、不会看到他人回答、给一份完整自洽的中文答案。三份 prompt 完全相同，不分配角色。
