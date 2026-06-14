@@ -1,0 +1,9 @@
+# OS / 编辑器
+.DS_Store
+*.swp
+*~
+
+# 运行时临时文件（臭皮匠 prompt / 输出落盘）
+/tmp/cobblers_*
+cobblers_*_prompt.txt
+cobblers_*_out.md
