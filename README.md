@@ -27,7 +27,7 @@
 | **Discuss（主打）** | `/cobblers` | 首轮 blind 独立 → 多轮互评（加角色）→ 整合 | 真正需要来回碰撞、互相挑错的难题 |
 | **Quick** | `/cobblers-quick` | 3 个 Opus 一次性 blind → 直接整合 | 想要多视角但不必多轮，快且省 |
 
-**Discuss** 借鉴了多 AI 讨论编排的思路：第 1 轮三人独立发散（互不可见）；第 2 轮起，主窗口把「另两家的观点」用 `SendMessage` 喂回每个臭皮匠，并分派 **严谨者 / 发散者 / 批判者** 三个角色让他们互评、反驳、修正；主窗口判断收敛（硬上限 2–3 轮），最后整合。比 Quick 多了「互相挑错」这一步，答案往往比任何单份更正确。
+**Discuss** 借鉴了多 AI 讨论编排的思路：第 1 轮三人独立发散（互不可见）；第 2 轮起，主窗口**每轮 re-spawn 三个新臭皮匠**、把「另两家的观点」注入新 prompt，并分派 **严谨者 / 发散者 / 批判者** 三个角色让他们互评、反驳、修正；主窗口判断收敛（硬上限 2–3 轮），最后整合。比 Quick 多了「互相挑错」这一步，答案往往比任何单份更正确。
 
 ## 讨论怎么进行（Discuss 细节）
 
@@ -47,15 +47,25 @@
 
 ## 安装
 
+**macOS / Linux：**
+
 ```bash
 git clone https://github.com/xingchen95/three-cobblers.git
 cd three-cobblers
 ./install.sh
 ```
 
+**Windows（PowerShell）：**
+
+```powershell
+git clone https://github.com/xingchen95/three-cobblers.git
+cd three-cobblers
+./install.ps1
+```
+
 把 skill 装到 `~/.claude/skills/cobblers`、命令装到 `~/.claude/commands`。重启 Claude Code 或 `/reload-skills` 后生效。
 
-> 用 `CLAUDE_CONFIG_DIR=/path/to/.claude ./install.sh` 可改安装位置。
+> 改安装位置：bash 用 `CLAUDE_CONFIG_DIR=/path/to/.claude ./install.sh`；PowerShell 用 `$env:CLAUDE_CONFIG_DIR='D:\path\.claude'; ./install.ps1`。
 
 ## 用法
 
@@ -75,7 +85,7 @@ cd three-cobblers
 ## 前提
 
 - **Claude Code**，且会话模型为 **Opus 4.8**——臭皮匠子代理和诸葛亮裁判都继承会话模型；换成别的模型，"Opus" 只是名义上的。
-- **零外部依赖**：只用 Opus 子代理（`Agent` 工具 + `SendMessage`），不需要任何外部 CLI，开箱即用。
+- **零外部依赖**：只用 Opus 子代理（`Agent` 工具），不需要任何外部 CLI，开箱即用。
 
 ## 成本与延迟
 
