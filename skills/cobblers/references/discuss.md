@@ -2,11 +2,9 @@
 
 主窗口 Opus（诸葛亮）是唯一的中转枢纽 + **调度器** + 最终整合者。
 
-**关键约束（决定整个实现）**：子代理能否续接**取决于环境开关**。**默认配置下**每次 spawn 都是全新 fresh context、`SendMessage` 不可用（官方文档：「Each subagent invocation creates a new instance with fresh context」）——此时「多轮讨论」只能靠**每轮 re-spawn 全新子代理** + 主窗口注入上下文重建。**但启用 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 后**，`SendMessage` 可用，能续接同一子代理且**保留其完整历史（含全部推理与中间思考）**——此时 R2+ **优先用续接**：同一臭皮匠跨轮记得自己怎么想的，主窗口只中转「另两家观点」，省掉「失忆 + 重新注入」的自伤与 token。
+**关键约束（决定整个实现）**：默认环境下**无法续接已 spawn 的子代理**——`SendMessage` 续接仅在实验性 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`（默认关、几乎无人开；且一旦开启会进入 agent-teams「teammate 互通 + 共享任务表」拓扑，与 blind 独立有张力）下才可用。所以 cobblers **一律按「每轮 re-spawn 全新子代理 + 主窗口注入上下文重建」**实现，不依赖续接。主窗口负责保存每轮每家的答案、证据卡和研究状态，供下一轮注入。
 
-- **续接（flag 开）**：跨轮无损，R2+ 首选。spawn 时记下每家返回的 agent id，下一轮用 `SendMessage`（`to: <agent id>`）只发「另两家观点 + 研究状态 + 角色 + 互评议程」，不必重发它自己的上轮答案与推理。
-- **re-spawn（默认 / flag 关）**：每轮失忆、靠注入重建，是 flag 关时唯一可行路径。
-- 两条路径**首轮 R1 都用全新独立子代理**（要的就是 blind 独立，续接在 R1 无意义）；续接只用于 R2+。主窗口始终保存每轮答案、证据卡、研究状态。
+> 注：曾尝试「flag 开就续接」的双路径，经 git 历史（`2d3cd37` live-test 验证默认环境无 SendMessage）与复盘判定为**对个人默认配置的过度工程**，已回退为单一 re-spawn 路径。
 
 > 本模式移植了 mindforge 的五项编排机制：①首轮方法论分叉 ②结构化证据卡 ③5-角色池（见 `roles.md`）④研究状态机 ⑤动态调度器（含 REFOCUS）。但保持 cobblers 的纯 Opus、零依赖、主窗口 re-spawn 形态——无持久层、无异构、无外部代码。
 

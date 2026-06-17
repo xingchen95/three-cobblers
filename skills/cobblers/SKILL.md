@@ -29,7 +29,7 @@ description: >-
 
 ## Discuss 模式
 
-照 `references/discuss.md` 执行：首轮 blind 独立（方法论分叉 + 结构化证据卡）→ 主窗口从 **5 角色池按题型选 3**（拿不准就用默认 严谨/发散/批判）→ **互评轮注入**（启用 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 则用 `SendMessage` 续接同一子代理、保留其完整推理；否则 re-spawn 重建）→ 维护**研究状态**（轻量优先，难题才上完整状态机）→ **动态调度器**每轮判 CONTINUE/CONVERGED/REFOCUS/ASK_USER/STALLED → 整合。角色池与选角表见 `references/roles.md`。加 `--save` 可把全程写进会话工作目录（`context.md`/`state.md`/`transcript.md`）并渲染 `transcript.html` 存档——只主窗口写、子代理只读，详见 `references/discuss.md`「会话工作目录」。
+照 `references/discuss.md` 执行：首轮 blind 独立（方法论分叉 + 结构化证据卡）→ 主窗口从 **5 角色池按题型选 3**（拿不准就用默认 严谨/发散/批判）→ **每轮 re-spawn 注入互评**（默认环境不支持续接，故每轮重 spawn 子代理 + 注入上下文）→ 维护**研究状态**（轻量优先，难题才上完整状态机）→ **动态调度器**每轮判 CONTINUE/CONVERGED/REFOCUS/ASK_USER/STALLED → 整合。角色池与选角表见 `references/roles.md`。加 `--save` 可把全程写进会话工作目录（`context.md`/`state.md`/`transcript.md`）并渲染 `transcript.html` 存档——只主窗口写、子代理只读，详见 `references/discuss.md`「会话工作目录」。
 
 **上下文传递模式（可设置）**：互评轮另两家的信息怎么给——**`full`（默认）**转发各家完整 Round 1 全文（连论证链都给，挑隐含假设最扎实），或 `digest` 转发各家「自述卡」（核心主张+证据卡+假设，省 token）。cobblers 主打高风险题，默认就给全文；用户用 `/cobblers --digest`、或说「精简上下文」→ `digest`（低风险 / 答案过长怕爆上下文时）。详见 `references/discuss.md`。
 
