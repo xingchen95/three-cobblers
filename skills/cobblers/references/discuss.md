@@ -2,7 +2,11 @@
 
 主窗口 Opus（诸葛亮）是唯一的中转枢纽 + **调度器** + 最终整合者。
 
-**关键约束（决定整个实现）**：当前 Claude Code **无法续接一个已 spawn 的子代理**——没有 `SendMessage` 之类的工具，`Agent` 也没有续接参数。子代理一旦返回就结束。所以「多轮讨论」**不是**靠续接同一个子代理，而是靠**每轮重新 spawn 全新子代理**，由主窗口把上一轮的上下文**注入新 prompt** 来重建。主窗口负责保存每轮每家的答案、证据卡和研究状态，供下一轮注入。
+**关键约束（决定整个实现）**：子代理能否续接**取决于环境开关**。**默认配置下**每次 spawn 都是全新 fresh context、`SendMessage` 不可用（官方文档：「Each subagent invocation creates a new instance with fresh context」）——此时「多轮讨论」只能靠**每轮 re-spawn 全新子代理** + 主窗口注入上下文重建。**但启用 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 后**，`SendMessage` 可用，能续接同一子代理且**保留其完整历史（含全部推理与中间思考）**——此时 R2+ **优先用续接**：同一臭皮匠跨轮记得自己怎么想的，主窗口只中转「另两家观点」，省掉「失忆 + 重新注入」的自伤与 token。
+
+- **续接（flag 开）**：跨轮无损，R2+ 首选。spawn 时记下每家返回的 agent id，下一轮用 `SendMessage`（`to: <agent id>`）只发「另两家观点 + 研究状态 + 角色 + 互评议程」，不必重发它自己的上轮答案与推理。
+- **re-spawn（默认 / flag 关）**：每轮失忆、靠注入重建，是 flag 关时唯一可行路径。
+- 两条路径**首轮 R1 都用全新独立子代理**（要的就是 blind 独立，续接在 R1 无意义）；续接只用于 R2+。主窗口始终保存每轮答案、证据卡、研究状态。
 
 > 本模式移植了 mindforge 的五项编排机制：①首轮方法论分叉 ②结构化证据卡 ③5-角色池（见 `roles.md`）④研究状态机 ⑤动态调度器（含 REFOCUS）。但保持 cobblers 的纯 Opus、零依赖、主窗口 re-spawn 形态——无持久层、无异构、无外部代码。
 
@@ -12,10 +16,10 @@
 
 | 模式 | 注入另两家的 | 完整度 | token | 默认 |
 | --- | --- | --- | --- | --- |
-| `digest` | 各家自产的**「自述卡」**（含证据卡） | 中高（作者本人提炼） | 适中 | ✅ |
-| `full` | 各家**完整答案全文** | 高（连论证链都给） | 高 | |
+| `full` | 各家**完整答案全文**（连论证链都给） | 高 | 高 | ✅ |
+| `digest` | 各家自产的**「自述卡」**（含证据卡） | 中高（作者本人提炼） | 适中 | |
 
-**怎么选**：用户用 `/cobblers --full` 或说「完整上下文」→ `full`；否则 `digest`。把标志从问题文本剥掉再用。**权衡**：互评的首要价值是挑对方的隐含假设，而隐含假设往往就藏在被 digest 压掉的论证链里——所以**高风险 / 调试 / 找反例类问题建议主动 `--full`**；digest 更适合省 token 的低风险场景。
+**默认 `full`**：cobblers 主打高风险题，互评的首要价值是挑对方的**隐含假设**，而隐含假设往往就藏在论证链里——`digest` 恰好把论证链压掉了，等于默认阉割互评。所以默认给全文。**省 token 才退 `digest`**：用户用 `/cobblers --digest` 或说「精简上下文」→ `digest`（适合低风险、问题简单、或答案很长怕爆上下文的场景）。把标志从问题文本剥掉再用。
 
 ## Round 1 — blind 独立发散 + 轻量方法论分叉
 
@@ -29,6 +33,8 @@
 | 拿不准 | 第一性原理 ｜ 类比迁移 ｜ 逆向工程 |
 
 注入话术（仅这一行三家不同）：「**本轮思考侧重：【X】**——<一句话定义>。这是侧重不是枷锁，若不适配本题就如实说明并灵活调整。」
+
+**Prompt 必须自包含（子代理对话失明）**：子代理只能看到你给它的这条 prompt——看不到你和用户的对话历史、更早的轮次、用户上传的文件/代码。所以「逐字原文」指的是**问题本身别替它预先消化**，但**回答所需的背景必须由主窗口显式注入**：相关代码/文件原文、先前已定的约束、指代消解（「那个方案 / 上面那段」到底指什么）。判据：假设读者只看到这一条 prompt、对你俩的对话一无所知，他还能完整作答吗？不能就是背景没给够。背景大时改用 `--save` 的 `context.md` 承载（见末节「会话工作目录」）。
 
 通用指令（三家相同）：用 web/bash 自行研究、作为多位独立专家之一、不会看到他人回答、给完整自洽中文答案；**若 web/bash 工具不可用或返回异常，必须在自述卡显式标「未联网核实」，不得假装查过**。
 
@@ -80,7 +86,9 @@
 
 ## 研究状态（主窗口每轮维护，移植 mindforge ResearchState）
 
-把原「工作黑板」升级为结构化研究状态：
+**轻量优先**：别被这张表吓到、也别为填表而填表——小问题用「已确认 / 分歧 / 证据缺口」三栏就够。主张表的 ✅⚔️❌🔬 状态、验证任务、已拒方案是**难题多轮时才上**的升级档，按需启用。纯 prompt 没有强制力，机制越精密、被真实执行的比例越低；宁可少而真，不要多而空。
+
+把原「工作黑板」升级为结构化研究状态（按需取用，不必全填）：
 
 ```
 研究状态：
@@ -124,3 +132,49 @@
 - 某子代理**失败/超时** → 视为**该轮缺席**，用其余两家继续并标注，**绝不当作沉默同意**。家数从 3 降到 2 时去相关性进一步变弱，**共识置信相应下调一档**；若缺席的恰是「批判者」，主窗口须临时补上反驳职能，别让这一轮没人专职挑错。
 - Round 1 不足 2 家返回 → 降级为可用家数的一次性整合，并说明。
 - 证据 > 断言：跑过代码/读过一手来源的（证据卡可信度高的），权重高于凭记忆推理的。藏起真冲突比没讨论更糟。
+
+## 会话工作目录（`--save`）— 上下文载体 + 存档
+
+用户加 `/cobblers --save`、或说「保存讨论 / 存档 / 存成 html」时启用；默认**关**（短问题不必落文件）。与 `--full / --digest` 正交，可叠加。
+
+**铁律：只有主窗口写文件；子代理一律只读，永不写文件。** 子代理的答案照常**作为文本返回**，由主窗口落盘——主窗口本就拿到返回文本，让它独家写，既无并发竞态、又不破坏「诸葛亮是唯一汇编者」。这正是 mindforge 的做法：共享状态由 server 读写、AI participant 不直接碰 SQLite。
+
+主窗口开场用 bash 建目录（`mkdir -p .cobblers/$(date +%Y%m%d-%H%M%S)-<问题短slug>`，记下绝对路径），里面：
+
+| 文件 | 谁写 | 谁读 | 内容 |
+| --- | --- | --- | --- |
+| `context.md` | 主窗口（开场写一次，用户补料时更新） | 所有子代理 | 问题 + 背景/代码/文件原文 + 指代消解。**只放背景，绝不放任何臭皮匠的答案**（否则 R1 读它就破了 blind） |
+| `state.md` | 主窗口（每轮覆盖为最新快照） | R2+ 子代理 | 研究状态机（主张表/分歧/证据缺口/验证任务/已拒方案/开放问题） |
+| `transcript.md` | 主窗口（每轮追加） | 人 | 全程日志：各轮各家答案 + 自述卡 + 分歧表 + 调度决策 + 最终整合 |
+| `transcript.html` | 主窗口（收尾渲染） | 人 | 自包含、带每家颜色的辩论存档（模板见下） |
+
+**接入现有流程**：
+- **R1**：背景写进 `context.md`，每个子代理 prompt 只说「背景见 `<abs>/context.md`，先读它」+ 逐字问题 + 方法论侧重。子代理读 context.md、照常把答案**作为文本返回**（不写文件）。主窗口把返回的答案 + 自述卡追加进 `transcript.md`。**注意 context.md 里绝不能有别家答案**，否则三家读同一文件就不再 blind。
+- **R2+**：主窗口把最新研究状态写进 `state.md`，子代理 prompt 说「研究状态见 `<abs>/state.md`」（替代把整段 state 粘进 3 个 prompt，省 token）。**另两家的观点仍按 digest/full 注入各自 prompt**（digest 模式各家看到的不一样，不能塞进共享文件）。
+- **收尾**：渲染 `transcript.html`，把目录绝对路径告诉用户。
+
+**粒度**：是「轮时」写入（每轮结束刷新），不是逐字实时——子代理是跑完即返回的批处理，没有边想边写的实时事件循环。建议用户把 `.cobblers/` 加进 `.gitignore`。
+
+**`transcript.html` 模板**（自包含、零外部依赖；卡片用 `white-space:pre-wrap` 直接放答案原文，不必转 markdown。颜色取自 mindforge：甲 `#8B5CF6` / 乙 `#10B981` / 丙 `#3B82F6`）：
+
+```html
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>三个臭皮匠 · {{问题摘要}}</title><style>
+ body{font:15px/1.7 system-ui,"Segoe UI",sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fafafa}
+ h1{font-size:1.3rem} h2{margin-top:2rem;border-bottom:1px solid #ddd;padding-bottom:.3rem}
+ .tag{display:inline-block;font-size:.75rem;padding:.1rem .5rem;border-radius:3px;background:#eee;margin:.2rem .3rem 0 0}
+ .card{border-left:4px solid #ccc;background:#fff;padding:.6rem 1rem;margin:.8rem 0;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+ .card-body{white-space:pre-wrap}
+ .A{border-color:#8B5CF6}.B{border-color:#10B981}.C{border-color:#3B82F6}
+ .who{font-weight:600;font-size:.85rem;margin-bottom:.3rem}.A .who{color:#8B5CF6}.B .who{color:#10B981}.C .who{color:#3B82F6}
+ table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{border:1px solid #ddd;padding:.4rem .6rem;text-align:left;font-size:.9rem}
+ .final{background:#fff8e6;border:1px solid #ea8600;border-radius:6px;padding:1rem;margin:1.5rem 0}
+</style></head><body>
+<h1>三个臭皮匠 · {{问题}}</h1>
+<div><span class="tag">{{digest/full}}</span><span class="tag">{{N}} 轮</span><span class="tag">甲·严谨者 乙·发散者 丙·批判者</span></div>
+<!-- 每轮：<h2>Round k</h2>，每家一张卡：
+     <div class="card A"><div class="who">甲 · 严谨者</div><div class="card-body">{{答案原文}}</div></div> -->
+<!-- 研究状态：<h2>研究状态</h2><table>…主张/状态/证据…</table> -->
+<!-- 收尾：<div class="final"><h2>最终答案</h2><div class="card-body">{{整合}}</div></div> -->
+</body></html>
+```
